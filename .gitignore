@@ -73,9 +73,9 @@ wandb/
 # Output visualizations (large files)
 visualization*/
 *_visualization/
-*.png
-*.jpg
-*.jpeg
+# *.png
+# *.jpg
+# *.jpeg
 
 # Keep important documentation images
 !docs/**/*.png
