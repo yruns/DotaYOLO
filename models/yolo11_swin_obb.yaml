@@ -1,0 +1,39 @@
+# YOLO11 + Swin-T OBB 模型
+# 使用 TorchVision 官方 Swin-T 作为 backbone
+# 参考 PR 18564: ultralytics/ultralytics
+
+# Parameters
+nc: 15  # DOTA dataset classes
+
+# Backbone: TorchVision Swin-T
+backbone:
+  # [from, repeats, module, args]
+  # TorchVision 参数: [c2, model_name, weights, unwrap, truncate]
+  # truncate=3 移除 norm, permute, head 三层，保留特征提取部分
+  - [-1, 1, TorchVision, [768, "swin_t", "DEFAULT", True, 3]]  # 0: Swin-T (768ch, 1/32)
+  
+  # 从 Swin 单尺度输出构建多尺度特征
+  - [-1, 1, Conv, [512, 1, 1]]     # 1: 通道调整 768->512 (P5)
+  - [-1, 1, SPPF, [512, 5]]        # 2: SPPF
+  - [-1, 2, C2PSA, [512]]          # 3: C2PSA (P5 特征)
+  
+  # P4/16 - 上采样生成
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 4
+  - [-1, 2, C3k2, [512, False]]    # 5: P4 特征
+  
+  # P3/8 - 继续上采样
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]  # 6
+  - [-1, 2, C3k2, [256, False]]    # 7: P3 特征
+
+# Head: PAN 结构
+head:
+  - [-1, 1, Conv, [256, 3, 2]]     # 8: 下采样 P3->P4
+  - [[-1, 5], 1, Concat, [1]]      # 9: concat with P4
+  - [-1, 2, C3k2, [512, False]]    # 10: P4 增强 (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]     # 11: 下采样 P4->P5
+  - [[-1, 3], 1, Concat, [1]]      # 12: concat with P5
+  - [-1, 2, C3k2, [512, True]]     # 13: P5 增强 (P5/32-large)
+
+  # OBB Detection head
+  - [[7, 10, 13], 1, OBB, [nc, 1]] # 14: OBB Detect (P3, P4, P5)

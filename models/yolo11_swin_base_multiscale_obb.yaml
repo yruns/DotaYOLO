@@ -1,0 +1,45 @@
+# YOLO11-OBB with Swin Transformer Base Multi-Scale Backbone
+# 使用 Swin-B 的多尺度输出 (P3, P4, P5)，配合 FPN/PAN 结构
+# 目标参数量约 100M
+
+# Parameters
+nc: 15  # DOTA dataset classes
+
+# Backbone: Swin Transformer Base with multi-scale outputs
+backbone:
+  # SwinMultiScaleBase outputs: [P3:256ch, P4:512ch, P5:1024ch]
+  - [-1, 1, SwinMultiScaleBase, []]                 # 0: Swin-B backbone, outputs list [P3, P4, P5]
+  
+  # Extract individual features from SwinMultiScaleBase output
+  - [0, 1, SwinIndex, [256, 0]]                     # 1: P3 (1/8, 256ch) - index 0
+  - [0, 1, SwinIndex, [512, 1]]                     # 2: P4 (1/16, 512ch) - index 1
+  - [0, 1, SwinIndex, [1024, 2]]                    # 3: P5 (1/32, 1024ch) - index 2
+  
+  # Channel adjustment (轻量化通道适配)
+  - [1, 1, Conv, [256, 1, 1]]                       # 4: P3 保持256
+  - [2, 1, Conv, [512, 1, 1]]                       # 5: P4 保持512
+  - [3, 1, Conv, [512, 1, 1]]                       # 6: P5 1024->512
+  - [-1, 1, SPPF, [512, 5]]                         # 7: SPPF on P5
+
+# Head: FPN (Top-down) + PAN (Bottom-up) - 轻量化版本
+head:
+  # FPN: Top-down pathway
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]      # 8: Upsample P5
+  - [[-1, 5], 1, Concat, [1]]                       # 9: Concat with P4 (512+512=1024)
+  - [-1, 2, C3k2, [512, False]]                     # 10: P4 fused
+
+  - [-1, 1, nn.Upsample, [None, 2, "nearest"]]      # 11: Upsample
+  - [[-1, 4], 1, Concat, [1]]                       # 12: Concat with P3 (512+256=768)
+  - [-1, 2, C3k2, [256, False]]                     # 13: P3 fused (P3/8-small)
+
+  # PAN: Bottom-up pathway
+  - [-1, 1, Conv, [256, 3, 2]]                      # 14: Downsample P3
+  - [[-1, 10], 1, Concat, [1]]                      # 15: Concat with P4 (256+512=768)
+  - [-1, 2, C3k2, [512, False]]                     # 16: P4 enhanced (P4/16-medium)
+
+  - [-1, 1, Conv, [512, 3, 2]]                      # 17: Downsample P4
+  - [[-1, 7], 1, Concat, [1]]                       # 18: Concat with P5 (512+512=1024)
+  - [-1, 2, C3k2, [512, True]]                      # 19: P5 enhanced (P5/32-large)
+
+  # OBB Detection head
+  - [[13, 16, 19], 1, OBB, [nc, 1]]                 # 20: OBB (P3:256, P4:512, P5:512)
