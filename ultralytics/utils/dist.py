@@ -47,8 +47,16 @@ def generate_ddp_file(trainer):
     """
     module, name = f"{trainer.__class__.__module__}.{trainer.__class__.__name__}".rsplit(".", 1)
 
+    # 获取项目根目录（ultralytics包的父目录）
+    import ultralytics
+    project_root = str(os.path.dirname(os.path.dirname(ultralytics.__file__)))
+
     content = f"""
 # Ultralytics Multi-GPU training temp file (should be automatically deleted after use)
+import sys
+# 添加项目根目录到Python路径，确保能找到本地的ultralytics模块
+sys.path.insert(0, r"{project_root}")
+
 overrides = {vars(trainer.args)}
 
 if __name__ == "__main__":
