@@ -104,6 +104,9 @@ from .transformer import (
 from .swin import (
     SwinMultiScale,
     SwinIndex,
+    PatchEmbed,
+    PatchMerging,
+    SwinStage,
 )
 
 __all__ = (
@@ -177,6 +180,9 @@ __all__ = (
     "SpatialAttention",
     "SwinMultiScale",
     "SwinIndex",
+    "PatchEmbed",
+    "PatchMerging",
+    "SwinStage",
     "TorchVision",
     "TransformerBlock",
     "TransformerEncoderLayer",

@@ -54,6 +54,8 @@ from ultralytics.nn.modules import (
     ImagePoolingAttn,
     Index,
     LRPCHead,
+    PatchEmbed,
+    PatchMerging,
     Pose,
     RepC3,
     RepConv,
@@ -65,6 +67,7 @@ from ultralytics.nn.modules import (
     Segment,
     SwinMultiScale,
     SwinIndex,
+    SwinStage,
     TorchVision,
     WorldDetect,
     YOLOEDetect,
@@ -1655,6 +1658,24 @@ def parse_model(d, ch, verbose=True):
             # args: [out_channels, index]
             c2 = args[0]  # output channels
             args = args  # pass all args to constructor
+        elif m is PatchEmbed:
+            # PatchEmbed: [c2, patch_size]
+            # Input: (B, C, H, W) -> Output: (B, c2, H/patch_size, W/patch_size)
+            c1 = ch[f]
+            c2 = args[0]  # output channels (embed_dim)
+            args = [c1, *args]  # prepend input channels
+        elif m is PatchMerging:
+            # PatchMerging: [c2]
+            # Input: (B, C, H, W) -> Output: (B, c2, H/2, W/2)
+            c1 = ch[f]
+            c2 = args[0]  # output channels
+            args = [c1, c2]
+        elif m is SwinStage:
+            # SwinStage: [c2, depth, num_heads, window_size]
+            # Input: (B, C, H, W) -> Output: (B, c2, H, W) (no spatial change within stage)
+            c1 = ch[f]
+            c2 = args[0]  # output channels (should equal c1)
+            args = [c1, *args]  # prepend input channels
         else:
             c2 = ch[f]
 
