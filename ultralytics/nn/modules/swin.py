@@ -155,10 +155,13 @@ class WindowAttention(nn.Module):
             self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1
         )
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()
-        attn = attn + relative_position_bias.unsqueeze(0)
+        # 确保relative_position_bias的类型与attn一致（解决AMP混合精度训练问题）
+        attn = attn + relative_position_bias.unsqueeze(0).to(dtype=attn.dtype)
 
         if mask is not None:
             nW = mask.shape[0]
+            # 确保mask的类型与attn一致（解决AMP混合精度训练问题）
+            mask = mask.to(dtype=attn.dtype)
             attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
             attn = self.softmax(attn)
