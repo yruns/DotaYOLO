@@ -45,6 +45,8 @@ venv.bak/
 # Datasets
 datasets/
 
+.venv/
+
 # Keep dataset config files
 !datasets/DOTA_Organized/dataset.yaml
 !datasets/DOTA_Organized/classes.txt
