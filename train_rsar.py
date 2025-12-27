@@ -7,14 +7,17 @@ from ultralytics.utils import SETTINGS
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, choices=['yolo11n-obb', 'yolo11x-obb'], default='yolo11n-obb')
+    parser.add_argument('--model', type=str, default='n')
     parser.add_argument('--data', type=str, default='datasets/RSAR_YOLO_OBB/rsar.yaml')
     parser.add_argument('--batchsize', type=int, default=32)
     parser.add_argument('--imgsz', type=int, default=512)
     parser.add_argument('--device', type=str, default='0')
     args = parser.parse_args()
 
-    model_name = args.model if args.model.endswith('.pt') else args.model + '.pt'
+    m = args.model.strip().lower()
+    short = {'n': 'yolo11n-obb', 'm': 'yolo11m-obb', 'l': 'yolo11l-obb', 'x': 'yolo11x-obb'}
+    base = short.get(m, m)
+    model_name = base if base.endswith('.pt') else base + '.pt'
     data_yaml = args.data
 
     if not Path(data_yaml).exists():
@@ -24,7 +27,7 @@ def main():
     SETTINGS.update({'wandb': True})
     model = YOLO(model_name)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    exp_name = f"{args.model}_{timestamp}"
+    exp_name = f"{Path(model_name).stem}_{timestamp}"
     model.train(
         data=data_yaml,
         batch=args.batchsize,
