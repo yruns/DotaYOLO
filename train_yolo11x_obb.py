@@ -7,14 +7,14 @@ import torch
 from ultralytics import YOLO
 
 def train_yolo11x_obb(
-    model_name='yolo11x-obb.pt',
-    data_config='datasets/DOTAv1-split/dota.yaml',
+    model_name='yolo11n-obb.pt',
+    data_config='/home/tiger/Datasets/DOTAv2/dota_v2.yaml',
     epochs=300,
     batch_size=8,  # X模型使用较小batch
     imgsz=1024,
-    device='0,1',  # 使用双GPU
+    device='0',  # 使用双GPU
     project='runs/dota',
-    name='yolo11x-obb',
+    name='yolo11n-obb',
     optimizer='SGD',
     lr0=0.008,  # YOLO11推荐稍低的学习率
     lrf=0.01,
@@ -173,14 +173,14 @@ def train_yolo11x_obb(
 if __name__ == "__main__":
     # YOLO11x训练配置 - 追求最佳精度
     config = {
-        'model_name': 'yolo11n-obb.pt',  # 最大版本，最高精度
-        'data_config': '/home/shyue/codebase/datov1/datasets/DOTAv1-split-sub/dota_sub.yaml',
+        'model_name': 'yolo11x-obb.pt',  # 最大版本，最高精度
+        'data_config': '/home/tiger/Datasets/DOTAv2/dota_v2.yaml',
         'epochs': 300,  # DOTA数据集推荐300轮
-        'batch_size': 8,  # X模型显存需求大，使用小batch
+        'batch_size': 4,  # X模型显存需求大，使用小batch
         'imgsz': 1024,  # DOTA标准尺寸
         'device': '0',  # 使用双GPU
         'project': 'runs/dota',
-        'name': 'yolo11x-obb-swin-style-exp1',
+        'name': 'yolo11x-obb',
         'optimizer': 'AdamW',  # AdamW适合Transformer架构
         'lr0': 0.001,  # 较低学习率适合AdamW
         'lrf': 0.01,  # 最终学习率=lr0*lrf
