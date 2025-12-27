@@ -48,6 +48,9 @@ datasets/
 # Predictions
 predictions/*
 
+# packages
+packages/
+
 .venv/
 
 # Keep dataset config files

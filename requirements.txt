@@ -1,3 +1,4 @@
+--extra-index-url https://download.pytorch.org/whl/cu124
 annotated-types==0.7.0
 certifi==2025.11.12
 charset-normalizer==3.4.4
