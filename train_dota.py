@@ -1,7 +1,9 @@
+import os
 import argparse
 from pathlib import Path
 from datetime import datetime
 from ultralytics import YOLO
+from ultralytics.utils import SETTINGS
 
 def main():
     parser = argparse.ArgumentParser()
@@ -18,6 +20,7 @@ def main():
         print(f"Error: dataset config not found: {data_yaml}")
         return
 
+    SETTINGS.update({'wandb': True})
     model = YOLO(model_name)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     exp_name = f"{args.model}_{timestamp}"
