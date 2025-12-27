@@ -8,13 +8,14 @@ from ultralytics.utils import SETTINGS
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, choices=['yolo11n-obb', 'yolo11x-obb'], default='yolo11n-obb')
+    parser.add_argument('--data', type=str, default='datasets/RSAR_YOLO_OBB/rsar.yaml')
     parser.add_argument('--batchsize', type=int, default=32)
     parser.add_argument('--imgsz', type=int, default=512)
     parser.add_argument('--device', type=str, default='0')
     args = parser.parse_args()
 
     model_name = args.model if args.model.endswith('.pt') else args.model + '.pt'
-    data_yaml = 'datasets/RSAR_YOLO_OBB/rsar.yaml'
+    data_yaml = args.data
 
     if not Path(data_yaml).exists():
         print(f"Error: dataset config not found: {data_yaml}")

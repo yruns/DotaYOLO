@@ -8,7 +8,7 @@ from ultralytics.utils import SETTINGS
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str, choices=['yolo11n-obb', 'yolo11x-obb'], default='yolo11n-obb')
-    parser.add_argument('--batchsize', type=int, default=16)
+    parser.add_argument('--batchsize', type=int, default=32)
     parser.add_argument('--imgsz', type=int, default=1024)
     parser.add_argument('--device', type=str, default='0')
     args = parser.parse_args()
