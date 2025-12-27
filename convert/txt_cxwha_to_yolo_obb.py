@@ -20,8 +20,7 @@ import math
 from pathlib import Path
 from typing import List, Optional
 
-from .common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label, find_image_file
-
+from convert.common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label, find_image_file
 
 def convert_dir(labels_dir: Path, images_dir: Optional[Path], out_dir: Path, normalize: str, angle_unit: str) -> None:
     files = [labels_dir] if labels_dir.is_file() and labels_dir.suffix.lower() == ".txt" else list(labels_dir.glob("*.txt"))

@@ -30,7 +30,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from .common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label
+from convert.common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label
 
 
 def convert_file(xml_path: Path, out_dir: Path, normalize: str, angle_unit: str, name_to_idx: Optional[Dict[str, int]]) -> None:

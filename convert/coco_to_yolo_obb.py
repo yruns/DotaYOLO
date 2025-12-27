@@ -29,7 +29,7 @@ import math
 from pathlib import Path
 from typing import Dict, List
 
-from .common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label, min_area_rect
+from convert.common import clamp01, norm_auto, to_obb_from_cxwh_angle, write_label, min_area_rect
 
 
 def convert(coco_json: Path, out_dir: Path, normalize: str, angle_unit: str) -> None:
