@@ -45,6 +45,9 @@ venv.bak/
 # Datasets
 datasets/
 
+# Predictions
+predictions/*
+
 .venv/
 
 # Keep dataset config files
