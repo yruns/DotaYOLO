@@ -1,0 +1,22 @@
+# RSAR Dataset for YOLO OBB
+# Converted from RSAR multi-class rotated SAR object detection dataset
+
+path: /home/tiger/codebase/DotaYOLO/data_samples/RSAR_YOLO_OBB
+train: train/images
+val: val/images
+test: test/images
+
+# Classes
+names:
+  0: ship
+  1: bridge
+  2: car
+  3: tank
+  4: aircraft
+  5: harbor
+
+# Dataset statistics:
+# - train: 78,837 images
+# - val: 8,467 images  
+# - test: 8,538 images
+# - Total instances: ~150,000

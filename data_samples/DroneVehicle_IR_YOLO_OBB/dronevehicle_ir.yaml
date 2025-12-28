@@ -1,0 +1,20 @@
+# DroneVehicle Dataset for YOLO OBB
+# Converted from DroneVehicle drone-based vehicle detection dataset
+# Image type: Infrared (IR)
+
+path: /home/tiger/Datasets/DroneVehicle_IR_YOLO_OBB
+train: train/images
+val: val/images
+
+# Classes
+names:
+  0: car
+  1: truck
+  2: bus
+  3: van
+  4: freight_car
+
+# Dataset info:
+# - DroneVehicle is a large-scale drone-based RGB-Infrared cross-modality vehicle detection dataset
+# - Contains both RGB and Infrared images with oriented bounding box annotations
+# - 5 vehicle categories: car, truck, bus, van, freight_car
