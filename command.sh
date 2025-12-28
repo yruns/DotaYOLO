@@ -1,5 +1,33 @@
 #!/bin/bash
 
+python evaluate_obb.py \
+  --gt datasets/RSAR_YOLO_OBB/val/labels \
+  --pred /home/tiger/codebase/DotaYOLO/runs/obb/predict4/labels \
+  --num-classes 6
+
+python predict_obb.py \
+    --pt runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt \
+    --source data_samples/RSAR_YOLO_OBB/train/images 
+
+yolo obb val model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt data=datasets/RSAR_YOLO_OBB/rsar.yaml
+
+yolo obb val model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt data=/home/tiger/codebase/DotaYOLO/data_samples/RSAR_YOLO_OBB/rsar.yaml
+
+yolo obb predict \
+  model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt \
+  source=/home/tiger/codebase/DotaYOLO/data_samples/RSAR_YOLO_OBB/val/images \
+  save=True \
+  save_txt=True \
+  save_conf=True
+
+yolo obb predict \
+  model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt \
+  source=/home/tiger/codebase/DotaYOLO/datasets/RSAR_YOLO_OBB/val/images \
+  save=True \
+  save_txt=True \
+  save_conf=True
+
+
 # YOLO CLI 命令集合
 # 语法: yolo TASK MODE ARGS
 # TASK: detect, segment, classify, pose, obb
@@ -33,7 +61,7 @@
 
 # ==================== 验证命令 ====================
 # 验证 OBB 模型
-# yolo obb val model=runs/rsar/yolo11n-obb_20251227_032355/weights/best.pt data=datasets/RSAR_YOLO_OBB/rsar.yaml imgsz=1024 batch=16
+# yolo obb val model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt data=datasets/RSAR_YOLO_OBB/rsar.yaml imgsz=512 batch=16
 
 # 验证检测模型
 # yolo detect val model=yolo11n.pt data=coco8.yaml batch=1 imgsz=640

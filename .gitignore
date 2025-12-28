@@ -51,6 +51,8 @@ predictions/*
 # packages
 packages/
 
+runs/obb/*
+
 .venv/
 
 # Keep dataset config files

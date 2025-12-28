@@ -79,8 +79,8 @@ def main():
                                 coords = []
                                 p = arr[jj]
                                 for k in range(4):
-                                    x = p[2*k] / w
-                                    y = p[2*k+1] / h
+                                    x = p[k][0] / w
+                                    y = p[k][1] / h
                                     coords.extend([x, y])
                                 lf.write(str(int(ci)) + ' ' + ' '.join(f"{v:.6f}" for v in coords) + '\n')
                 else:

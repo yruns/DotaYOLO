@@ -2,7 +2,7 @@
 # Converted from DroneVehicle drone-based vehicle detection dataset
 # Image type: Infrared (IR)
 
-path: /home/tiger/Datasets/DroneVehicle_IR_YOLO_OBB
+path: data_samples/DroneVehicle_IR_YOLO_OBB
 train: train/images
 val: val/images
 
