@@ -13,6 +13,8 @@ yolo obb val model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt data=da
 
 yolo obb val model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt data=/home/tiger/codebase/DotaYOLO/data_samples/RSAR_YOLO_OBB/rsar.yaml
 
+yolo obb val model=runs/dronevehicle/yolo11n-obb_20251227_162321/weights/best.pt data=datasets/DroneVehicle_IR_YOLO_OBB/dronevehicle_ir.yaml
+
 yolo obb predict \
   model=runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt \
   source=/home/tiger/codebase/DotaYOLO/data_samples/RSAR_YOLO_OBB/val/images \
