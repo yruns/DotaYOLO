@@ -1,257 +1,407 @@
 import argparse
-import os
+import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+
 import numpy as np
-from collections import defaultdict
-from typing import List, Dict, Tuple
-import json
-import cv2
-from tqdm import tqdm
 
-def parse_obb_line(line: str) -> Tuple[int, np.ndarray, float]:
-    parts = line.strip().split()
-    if len(parts) == 10:
-        class_id = int(parts[0])
-        coords = np.array([float(x) for x in parts[1:9]], dtype=np.float32)
-        confidence = float(parts[9])
-    elif len(parts) == 9:
-        class_id = int(parts[0])
-        coords = np.array([float(x) for x in parts[1:]], dtype=np.float32)
-        confidence = 1.0
-    else:
-        raise ValueError(f"Invalid OBB line format: {line}")
-    return class_id, coords, confidence
+try:
+    import cv2  # type: ignore
+except Exception:
+    cv2 = None
 
-def load_labels(label_dir: str, desc: str = "Loading labels") -> Dict[str, List[Tuple[int, np.ndarray, float]]]:
-    labels = {}
-    label_path = Path(label_dir)
-    txt_files = list(label_path.glob('*.txt'))
-    
-    for txt_file in tqdm(txt_files, desc=desc, unit="file"):
-        image_id = txt_file.stem
-        boxes = []
-        with open(txt_file, 'r') as f:
-            for line in f:
-                if line.strip():
-                    try:
-                        class_id, coords, conf = parse_obb_line(line)
-                        boxes.append((class_id, coords, conf))
-                    except ValueError as e:
-                        print(f"Warning: {e}")
-        labels[image_id] = boxes
-    return labels
 
-def polygon_iou(poly1: np.ndarray, poly2: np.ndarray) -> float:
-    p1 = poly1.reshape(-1, 2).astype(np.float32)
-    p2 = poly2.reshape(-1, 2).astype(np.float32)
-    
+Point = Tuple[float, float]
+
+
+@dataclass(frozen=True)
+class Det:
+    image_id: str
+    cls: int
+    pts: Tuple[Point, Point, Point, Point]
+    conf: float
+
+
+def _as_float(x: str, default: float = 0.0) -> float:
     try:
-        inter_area = cv2.intersectConvexConvex(p1, p2)[0]
-        area1 = cv2.contourArea(p1)
-        area2 = cv2.contourArea(p2)
-        union_area = area1 + area2 - inter_area
-        
-        return inter_area / union_area if union_area > 0 else 0.0
-    except:
+        return float(x)
+    except Exception:
+        return default
+
+
+def _as_int(x: str, default: int = 0) -> int:
+    try:
+        return int(float(x))
+    except Exception:
+        return default
+
+
+def _order_points_ccw(pts: Sequence[Point]) -> Tuple[Point, Point, Point, Point]:
+    arr = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
+    if arr.shape[0] != 4:
+        raise ValueError("OBB must have 4 points")
+    center = arr.mean(axis=0)
+    angles = np.arctan2(arr[:, 1] - center[1], arr[:, 0] - center[0])
+    idx = np.argsort(angles)
+    arr = arr[idx]
+    if _polygon_area(arr) < 0:
+        arr = arr[::-1]
+    return tuple((float(x), float(y)) for x, y in arr)  # type: ignore[return-value]
+
+
+def _polygon_area(pts: np.ndarray) -> float:
+    x = pts[:, 0]
+    y = pts[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
+
+
+def _polygon_area_abs(pts: Sequence[Point]) -> float:
+    arr = np.asarray(pts, dtype=np.float64).reshape(-1, 2)
+    if arr.shape[0] < 3:
         return 0.0
+    return abs(_polygon_area(arr))
 
-def compute_ap(recall: np.ndarray, precision: np.ndarray) -> float:
-    mrec = np.concatenate(([0.0], recall, [1.0]))
-    mpre = np.concatenate(([0.0], precision, [0.0]))
-    for i in range(len(mpre) - 1, 0, -1):
-        mpre[i - 1] = max(mpre[i - 1], mpre[i])
-    i = np.where(mrec[1:] != mrec[:-1])[0]
-    ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
-    return ap
 
-def evaluate_class(gt_boxes: List[Tuple[str, np.ndarray]], 
-                   pred_boxes: List[Tuple[str, np.ndarray, float]],
-                   iou_threshold: float = 0.5) -> Tuple[float, float, float, int, int, int]:
-    num_gt = len(gt_boxes)
-    if num_gt == 0:
-        return 0.0, 0.0, 0.0, 0, 0, 0
-    
-    pred_sorted = sorted(pred_boxes, key=lambda x: -x[2])
-    
-    tp_list = []
-    fp_list = []
-    matched_gt = set()
-    
-    for pred_id, pred_box, conf in pred_sorted:
-        best_iou = 0.0
-        best_gt_idx = -1
-        
-        for gt_idx, (gt_id, gt_box) in enumerate(gt_boxes):
-            if gt_idx in matched_gt or gt_id != pred_id:
+def _clip_polygon(subject: Sequence[Point], clipper: Sequence[Point]) -> List[Point]:
+    def inside(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> bool:
+        return float((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])) >= 0.0
+
+    def intersection(s: np.ndarray, e: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        dc = a - b
+        dp = s - e
+        n1 = a[0] * b[1] - a[1] * b[0]
+        n2 = s[0] * e[1] - s[1] * e[0]
+        denom = dc[0] * dp[1] - dc[1] * dp[0]
+        if abs(float(denom)) < 1e-12:
+            return e
+        x = (n1 * dp[0] - n2 * dc[0]) / denom
+        y = (n1 * dp[1] - n2 * dc[1]) / denom
+        return np.array([x, y], dtype=np.float64)
+
+    output = [np.array(p, dtype=np.float64) for p in subject]
+    if not output:
+        return []
+    cp = [np.array(p, dtype=np.float64) for p in clipper]
+    for i in range(len(cp)):
+        input_list = output
+        output = []
+        a = cp[i]
+        b = cp[(i + 1) % len(cp)]
+        if not input_list:
+            break
+        s = input_list[-1]
+        for e in input_list:
+            if inside(e, a, b):
+                if not inside(s, a, b):
+                    output.append(intersection(s, e, a, b))
+                output.append(e)
+            elif inside(s, a, b):
+                output.append(intersection(s, e, a, b))
+            s = e
+    return [(float(p[0]), float(p[1])) for p in output]
+
+
+def _intersection_area(poly1: Sequence[Point], poly2: Sequence[Point]) -> float:
+    if cv2 is not None:
+        p1 = np.asarray(poly1, dtype=np.float32).reshape(-1, 1, 2)
+        p2 = np.asarray(poly2, dtype=np.float32).reshape(-1, 1, 2)
+        try:
+            area, _ = cv2.intersectConvexConvex(p1, p2)  # type: ignore[attr-defined]
+            return float(area)
+        except Exception:
+            pass
+    inter = _clip_polygon(poly1, poly2)
+    return _polygon_area_abs(inter)
+
+
+def obb_iou(pts1: Sequence[Point], pts2: Sequence[Point]) -> float:
+    a1 = _polygon_area_abs(pts1)
+    a2 = _polygon_area_abs(pts2)
+    if a1 <= 0.0 or a2 <= 0.0:
+        return 0.0
+    inter = _intersection_area(pts1, pts2)
+    if inter <= 0.0:
+        return 0.0
+    union = a1 + a2 - inter
+    if union <= 0.0:
+        return 0.0
+    return float(inter / union)
+
+
+def _parse_label_line(line: str) -> Optional[Tuple[int, Tuple[Point, Point, Point, Point], float]]:
+    parts = line.strip().split()
+    if len(parts) < 9:
+        return None
+    cls = _as_int(parts[0], default=-1)
+    coords = [_as_float(x, default=float("nan")) for x in parts[1:9]]
+    if any(math.isnan(v) for v in coords):
+        return None
+    pts = [(coords[i], coords[i + 1]) for i in range(0, 8, 2)]
+    conf = 1.0
+    if len(parts) >= 10:
+        conf = _as_float(parts[9], default=1.0)
+    pts = _order_points_ccw(pts)
+    return cls, pts, conf
+
+
+def load_labels_dir(label_dir: Path, min_conf: float = 0.0) -> Dict[str, List[Det]]:
+    out: Dict[str, List[Det]] = {}
+    if not label_dir.exists():
+        raise FileNotFoundError(str(label_dir))
+    for p in sorted(label_dir.glob("*.txt")):
+        image_id = p.stem
+        dets: List[Det] = []
+        try:
+            text = p.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            text = ""
+        for line in text.splitlines():
+            parsed = _parse_label_line(line)
+            if parsed is None:
                 continue
-            iou = polygon_iou(pred_box, gt_box)
+            cls, pts, conf = parsed
+            if conf < min_conf:
+                continue
+            dets.append(Det(image_id=image_id, cls=cls, pts=pts, conf=conf))
+        out[image_id] = dets
+    return out
+
+
+def _suffix_max(x: np.ndarray) -> np.ndarray:
+    out = np.empty_like(x)
+    m = -np.inf
+    for i in range(x.size - 1, -1, -1):
+        v = float(x[i])
+        if v > m:
+            m = v
+        out[i] = m
+    return out
+
+
+def ap_from_pr(rec: np.ndarray, prec: np.ndarray) -> float:
+    if rec.size == 0:
+        return 0.0
+    mrec = np.concatenate(([0.0], rec, [1.0]))
+    mpre = np.concatenate(([0.0], prec, [0.0]))
+    mpre = _suffix_max(mpre)
+    recall_levels = np.linspace(0.0, 1.0, 101)
+    idx = np.searchsorted(mrec, recall_levels, side="left")
+    idx = np.clip(idx, 0, mpre.size - 1)
+    return float(np.mean(mpre[idx]))
+
+
+def match_detections(
+    preds: List[Det],
+    gts_by_image: Dict[str, List[Det]],
+    iou_thr: float,
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    preds_sorted = sorted(preds, key=lambda d: d.conf, reverse=True)
+    gt_pts: Dict[str, List[Tuple[Point, Point, Point, Point]]] = {}
+    gt_matched: Dict[str, np.ndarray] = {}
+    n_gt = 0
+    for image_id, gts in gts_by_image.items():
+        pts_list = [g.pts for g in gts]
+        gt_pts[image_id] = pts_list
+        gt_matched[image_id] = np.zeros(len(pts_list), dtype=bool)
+        n_gt += len(pts_list)
+
+    tp = np.zeros(len(preds_sorted), dtype=np.float64)
+    fp = np.zeros(len(preds_sorted), dtype=np.float64)
+    for i, d in enumerate(preds_sorted):
+        pts_list = gt_pts.get(d.image_id)
+        if not pts_list:
+            fp[i] = 1.0
+            continue
+        matched = gt_matched[d.image_id]
+        best_iou = 0.0
+        best_j = -1
+        for j, gt_pts_j in enumerate(pts_list):
+            if matched[j]:
+                continue
+            iou = obb_iou(d.pts, gt_pts_j)
             if iou > best_iou:
                 best_iou = iou
-                best_gt_idx = gt_idx
-        
-        if best_iou >= iou_threshold:
-            tp_list.append(1)
-            fp_list.append(0)
-            matched_gt.add(best_gt_idx)
+                best_j = j
+        if best_iou >= iou_thr and best_j >= 0:
+            tp[i] = 1.0
+            matched[best_j] = True
         else:
-            tp_list.append(0)
-            fp_list.append(1)
-    
-    tp_cumsum = np.cumsum(tp_list)
-    fp_cumsum = np.cumsum(fp_list)
-    
-    recalls = tp_cumsum / num_gt
-    precisions = tp_cumsum / (tp_cumsum + fp_cumsum + 1e-6)
-    
-    ap = compute_ap(recalls, precisions)
-    
-    tp = int(tp_cumsum[-1]) if len(tp_cumsum) > 0 else 0
-    fp = int(fp_cumsum[-1]) if len(fp_cumsum) > 0 else 0
-    fn = num_gt - tp
-    
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
-    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
-    
-    return precision, recall, f1, tp, fp, fn, ap
+            fp[i] = 1.0
+    return tp, fp, n_gt
 
-def compute_map(gt_labels: Dict[str, List[Tuple[int, np.ndarray, float]]],
-                pred_labels: Dict[str, List[Tuple[int, np.ndarray, float]]],
-                iou_thresholds: List[float] = [0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
-                num_classes: int = 6) -> Dict:
-    ap_per_class_per_iou = {iou_th: [] for iou_th in iou_thresholds}
-    class_stats = {}
-    
-    for class_id in tqdm(range(num_classes), desc="Evaluating classes", unit="class"):
-        gt_boxes = []
-        pred_boxes = []
-        
-        for image_id in gt_labels:
-            gt_boxes_class = [(image_id, box) for cls, box, conf in gt_labels[image_id] if cls == class_id]
-            pred_boxes_class = [(image_id, box, conf) for cls, box, conf in pred_labels.get(image_id, []) if cls == class_id]
-            
-            gt_boxes.extend(gt_boxes_class)
-            pred_boxes.extend(pred_boxes_class)
-        
-        class_metrics = {}
-        
-        for iou_threshold in iou_thresholds:
-            precision, recall, f1, tp, fp, fn, ap = evaluate_class(gt_boxes, pred_boxes, iou_threshold)
-            
-            if iou_threshold == 0.5:
-                class_metrics['iou_50'] = {
-                    'precision': float(precision),
-                    'recall': float(recall),
-                    'f1': float(f1),
-                    'tp': tp,
-                    'fp': fp,
-                    'fn': fn
-                }
-            
-            ap_per_class_per_iou[iou_threshold].append(ap)
-        
-        class_stats[class_id] = class_metrics
-    
-    map_50 = np.mean(ap_per_class_per_iou[0.5]) if ap_per_class_per_iou[0.5] else 0.0
-    map_50_95 = np.mean([np.mean(aps) if aps else 0.0 for aps in ap_per_class_per_iou.values()])
-    
-    overall_metrics = {
-        'precision': 0.0,
-        'recall': 0.0,
-        'f1': 0.0,
-        'tp': 0,
-        'fp': 0,
-        'fn': 0
-    }
-    
-    for class_id in class_stats:
-        if 'iou_50' in class_stats[class_id]:
-            m = class_stats[class_id]['iou_50']
-            overall_metrics['precision'] += m['precision']
-            overall_metrics['recall'] += m['recall']
-            overall_metrics['f1'] += m['f1']
-            overall_metrics['tp'] += m['tp']
-            overall_metrics['fp'] += m['fp']
-            overall_metrics['fn'] += m['fn']
-    
-    num_valid_classes = len([c for c in class_stats if 'iou_50' in class_stats[c]])
-    if num_valid_classes > 0:
-        overall_metrics['precision'] /= num_valid_classes
-        overall_metrics['recall'] /= num_valid_classes
-        overall_metrics['f1'] /= num_valid_classes
-    
-    return {
-        'class_stats': class_stats,
-        'overall': overall_metrics,
-        'mAP@0.5': float(map_50),
-        'mAP@0.5:0.95': float(map_50_95),
-        'ap_per_iou': {str(k): float(np.mean(v) if v else 0.0) for k, v in ap_per_class_per_iou.items()}
-    }
 
-def main():
-    parser = argparse.ArgumentParser(description='Evaluate YOLO OBB predictions')
-    parser.add_argument('--gt', type=str, required=True, help='Ground truth labels directory')
-    parser.add_argument('--pred', type=str, required=True, help='Predicted labels directory')
-    parser.add_argument('--num-classes', type=int, default=6, help='Number of classes')
-    parser.add_argument('--output', type=str, default='evaluation_results.json', help='Output JSON file')
+def pr_curve(tp: np.ndarray, fp: np.ndarray, n_gt: int) -> Tuple[np.ndarray, np.ndarray]:
+    if tp.size == 0:
+        return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
+    tp_c = np.cumsum(tp)
+    fp_c = np.cumsum(fp)
+    rec = tp_c / max(n_gt, 1)
+    prec = tp_c / np.maximum(tp_c + fp_c, 1e-12)
+    return rec, prec
+
+
+def best_f1(rec: np.ndarray, prec: np.ndarray, confs: np.ndarray) -> Tuple[float, float, float, float]:
+    if rec.size == 0:
+        return 0.0, 0.0, 0.0, 0.0
+    f1 = 2.0 * prec * rec / np.maximum(prec + rec, 1e-12)
+    i = int(np.argmax(f1))
+    return float(prec[i]), float(rec[i]), float(f1[i]), float(confs[i])
+
+
+def evaluate(
+    gt_dir: Path,
+    pred_dir: Path,
+    iou_thrs: Sequence[float],
+    min_conf: float,
+    per_class: bool,
+) -> Dict[str, object]:
+    gts_all = load_labels_dir(gt_dir, min_conf=0.0)
+    preds_all = load_labels_dir(pred_dir, min_conf=min_conf)
+    image_ids = sorted(set(gts_all.keys()) | set(preds_all.keys()))
+
+    gts_by_cls: Dict[int, Dict[str, List[Det]]] = {}
+    preds_by_cls: Dict[int, List[Det]] = {}
+    micro_gts_by_image: Dict[str, List[Det]] = {}
+    micro_preds: List[Det] = []
+
+    for image_id in image_ids:
+        gts = gts_all.get(image_id, [])
+        preds = preds_all.get(image_id, [])
+        micro_gts_by_image[image_id] = gts
+        micro_preds.extend(preds)
+        for g in gts:
+            gts_by_cls.setdefault(g.cls, {}).setdefault(image_id, []).append(g)
+        for d in preds:
+            preds_by_cls.setdefault(d.cls, []).append(d)
+
+    classes = sorted(set(gts_by_cls.keys()) | set(preds_by_cls.keys()))
+
+    ap50_by_cls: Dict[int, float] = {}
+    ap_by_cls: Dict[int, float] = {}
+    n_gt_by_cls: Dict[int, int] = {}
+    n_pred_by_cls: Dict[int, int] = {}
+
+    for cls in classes:
+        cls_gts = gts_by_cls.get(cls, {})
+        cls_preds = preds_by_cls.get(cls, [])
+        n_gt = sum(len(v) for v in cls_gts.values())
+        n_gt_by_cls[cls] = n_gt
+        n_pred_by_cls[cls] = len(cls_preds)
+        if n_gt == 0:
+            ap50_by_cls[cls] = 0.0
+            ap_by_cls[cls] = 0.0
+            continue
+        aps = []
+        for t in iou_thrs:
+            tp, fp, n_gt_t = match_detections(cls_preds, cls_gts, iou_thr=float(t))
+            rec, prec = pr_curve(tp, fp, n_gt_t)
+            aps.append(ap_from_pr(rec, prec))
+        ap50_by_cls[cls] = float(aps[0])
+        ap_by_cls[cls] = float(np.mean(aps))
+
+    valid_classes = [c for c in classes if n_gt_by_cls.get(c, 0) > 0]
+    map50 = float(np.mean([ap50_by_cls[c] for c in valid_classes])) if valid_classes else 0.0
+    map5095 = float(np.mean([ap_by_cls[c] for c in valid_classes])) if valid_classes else 0.0
+
+    tp, fp, n_gt = match_detections(micro_preds, micro_gts_by_image, iou_thr=float(iou_thrs[0]))
+    rec, prec = pr_curve(tp, fp, n_gt)
+    confs = np.array([d.conf for d in sorted(micro_preds, key=lambda d: d.conf, reverse=True)], dtype=np.float64)
+    p_best, r_best, f1_best, conf_best = best_f1(rec, prec, confs)
+
+    out: Dict[str, object] = {
+        "num_images": len(image_ids),
+        "num_classes": len(classes),
+        "precision": p_best,
+        "recall": r_best,
+        "f1": f1_best,
+        "conf_best": conf_best,
+        "map50": map50,
+        "map5095": map5095,
+        "valid_classes": len(valid_classes),
+    }
+    if per_class:
+        out["per_class"] = {
+            "ap50": ap50_by_cls,
+            "ap": ap_by_cls,
+            "n_gt": n_gt_by_cls,
+            "n_pred": n_pred_by_cls,
+        }
+    return out
+
+
+def _parse_iou_thrs(spec: str) -> List[float]:
+    s = spec.strip()
+    if not s:
+        return [0.5]
+    if "," in s:
+        vals = []
+        for part in s.split(","):
+            v = _as_float(part.strip(), default=float("nan"))
+            if not math.isnan(v):
+                vals.append(v)
+        return vals if vals else [0.5]
+    if ":" in s:
+        a, b, c = (p.strip() for p in s.split(":", maxsplit=2))
+        start = _as_float(a, default=0.5)
+        stop = _as_float(b, default=0.95)
+        step = _as_float(c, default=0.05)
+        if step <= 0:
+            return [start]
+        vals = []
+        v = start
+        while v <= stop + 1e-9:
+            vals.append(round(v, 10))
+            v += step
+        return vals
+    v = _as_float(s, default=0.5)
+    return [v]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gt", type=str, required=True)
+    parser.add_argument("--pred", type=str, required=True)
+    parser.add_argument("--iou", type=str, default="0.5:0.95:0.05")
+    parser.add_argument("--min-conf", type=float, default=0.001)
+    parser.add_argument("--per-class", action="store_true")
     args = parser.parse_args()
-    
-    print("Loading ground truth labels...")
-    gt_labels = load_labels(args.gt, desc="Loading ground truth")
-    print(f"Loaded {len(gt_labels)} ground truth files")
-    
-    print("Loading predicted labels...")
-    pred_labels = load_labels(args.pred, desc="Loading predictions")
-    print(f"Loaded {len(pred_labels)} prediction files")
-    
-    print("\nComputing metrics...")
-    results = compute_map(gt_labels, pred_labels, num_classes=args.num_classes)
-    
-    class_names = ['ship', 'bridge', 'car', 'tank', 'aircraft', 'harbor']
-    
-    print("\n" + "="*70)
-    print("EVALUATION RESULTS")
-    print("="*70)
-    print(f"\nOverall Metrics (IoU=0.5):")
-    print(f"  Precision: {results['overall']['precision']:.4f}")
-    print(f"  Recall:    {results['overall']['recall']:.4f}")
-    print(f"  F1-Score:  {results['overall']['f1']:.4f}")
-    print(f"  TP: {results['overall']['tp']}, FP: {results['overall']['fp']}, FN: {results['overall']['fn']}")
-    
-    print(f"\nmAP Metrics:")
-    print(f"  mAP@0.5:     {results['mAP@0.5']:.4f}")
-    print(f"  mAP@0.5:0.95: {results['mAP@0.5:0.95']:.4f}")
-    
-    print(f"\nPer-Class Metrics (IoU=0.5):")
-    print(f"{'Class':<12} {'Precision':<12} {'Recall':<12} {'F1-Score':<12} {'TP':<6} {'FP':<6} {'FN':<6}")
-    print("-"*72)
-    for class_id in range(args.num_classes):
-        if class_id in results['class_stats'] and 'iou_50' in results['class_stats'][class_id]:
-            stats = results['class_stats'][class_id]['iou_50']
-            name = class_names[class_id] if class_id < len(class_names) else f"Class_{class_id}"
-            print(f"{name:<12} {stats['precision']:<12.4f} {stats['recall']:<12.4f} {stats['f1']:<12.4f} {stats['tp']:<6} {stats['fp']:<6} {stats['fn']:<6}")
-    
-    print(f"\nAP at different IoU thresholds:")
-    print(f"{'IoU':<10} {'AP':<12}")
-    print("-"*22)
-    for iou_th in sorted([float(k) for k in results['ap_per_iou'].keys()]):
-        print(f"{iou_th:<10.2f} {results['ap_per_iou'][str(iou_th)]:<12.4f}")
-    
-    output_results = {
-        'overall_metrics': results['overall'],
-        'map_metrics': {
-            'mAP@0.5': results['mAP@0.5'],
-            'mAP@0.5:0.95': results['mAP@0.5:0.95']
-        },
-        'class_metrics': results['class_stats'],
-        'ap_per_iou': results['ap_per_iou'],
-        'class_names': class_names
-    }
-    
-    with open(args.output, 'w') as f:
-        json.dump(output_results, f, indent=2)
-    
-    print(f"\nResults saved to {args.output}")
 
-if __name__ == '__main__':
+    metrics = evaluate(
+        gt_dir=Path(args.gt),
+        pred_dir=Path(args.pred),
+        iou_thrs=_parse_iou_thrs(args.iou),
+        min_conf=float(args.min_conf),
+        per_class=bool(args.per_class),
+    )
+
+    print(f"images: {metrics['num_images']}")
+    print(f"classes: {metrics['num_classes']} (valid: {metrics['valid_classes']})")
+    print(
+        "precision: {:.6f}  recall: {:.6f}  f1: {:.6f}  conf*: {:.4f}".format(
+            metrics["precision"],
+            metrics["recall"],
+            metrics["f1"],
+            metrics["conf_best"],
+        )
+    )
+    print("mAP50: {:.6f}  mAP50-95: {:.6f}".format(metrics["map50"], metrics["map5095"]))
+
+    if "per_class" in metrics:
+        pc = metrics["per_class"]
+        ap50 = pc["ap50"]
+        ap = pc["ap"]
+        n_gt = pc["n_gt"]
+        n_pred = pc["n_pred"]
+        keys = sorted(ap50.keys())
+        print("per-class:")
+        for k in keys:
+            print(
+                f"  {k}: n_gt={n_gt.get(k, 0)} n_pred={n_pred.get(k, 0)} "
+                f"AP50={ap50.get(k, 0.0):.6f} AP={ap.get(k, 0.0):.6f}"
+            )
+
+
+if __name__ == "__main__":
     main()
+

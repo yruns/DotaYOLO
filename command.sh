@@ -1,9 +1,9 @@
 #!/bin/bash
 
 python evaluate_obb.py \
-  --gt datasets/RSAR_YOLO_OBB/val/labels \
-  --pred /home/tiger/codebase/DotaYOLO/runs/obb/predict4/labels \
-  --num-classes 6
+    --gt /home/tiger/codebase/DotaYOLO/datasets/RSAR_YOLO_OBB/val/labels \
+    --pred /home/tiger/codebase/DotaYOLO/runs/obb/predict/labels \
+    --min-conf 0.001
 
 python predict_obb.py \
     --pt runs/rsar/yolo11x-obb_20251227_132037/weights/best.pt \

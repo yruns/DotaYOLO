@@ -45,6 +45,8 @@ venv.bak/
 # Datasets
 datasets/
 
+data_samples/test/*
+
 # Predictions
 predictions/*
 
